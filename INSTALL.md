@@ -47,8 +47,8 @@ Install panam with the setup.pl script :
 
 	perl -w setup.pl -USEARCH_path /absolute/path/to/uclust/binary
 
-Answer "yes" or "all" or [Enter] to all questions.
-Ignore FastTree compiling warnings if occured.
+Choose default choice for all questions.
+Ignore FastTree compiling warnings if occurred.
 
 
 

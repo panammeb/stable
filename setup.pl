@@ -254,7 +254,7 @@ sub compile_emboss {
 	print "\nInstalling fuzznuc ...\n";
 	system ("tar -xvzf EMBOSS-6.5.7.tar.gz");
 	chdir ("EMBOSS-6.5.7");
-	system ("./configure --prefix=$current_dir/bin/EMBOSS-6.5.7");
+	system ("./configure --prefix=$current_dir/bin/EMBOSS-6.5.7 --without-x");
 	system ("make");
 	chdir ("../");
 }
