@@ -181,7 +181,6 @@ open (F6, ">$current_dir/phylodiv.pl");
 print F6 $text6;
 close F6;
 
-
 #######################################################""
 print "\n\n\tCompiling Bioperl...\n\t******* For non experimented users, we recommand to use the default setting while installing bioperl *******\n";
 print "\t******* If the archive Bioperl-1.5.2_102.zip already exists, you may chose to replace it or not [A/N] *******\n";
