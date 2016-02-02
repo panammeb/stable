@@ -1,0 +1,248 @@
+#!/usr/bin/perl
+
+#Use Krontab with Panam V1
+#3.01 using krontab with normalised data
+#29/07/2014
+
+$path_intallation="RSCRIPTS"; 
+
+
+open(INI, $ARGV[0]) or die "Couldn't open file $ARGV[0] !\n"; # file panam.ini as unique parameter
+
+while(<INI>)
+{
+	if ($_ =~ /454_RUN_IDENTIFIER\t(.*)/)
+	{
+	chomp($1);
+	$path_results = $1;
+
+	}
+
+}
+
+
+
+### Krona process #####
+
+if(`which ktImportText | wc -l` > 0) # check the installation of the software
+{
+
+
+`mkdir $path_results/samples 2>/dev/null`;
+
+# From OTU_distribution_tax.txt 
+open (TAG,"$path_results/OTU_distribution_tax.txt") or die "Couldn't open file OTU_distribution_tax.txt !\n";
+@tag=<TAG>;
+@ligne_label=split('\t',$tag[0]);
+
+
+$nb_labels=$#ligne_label-2;
+$nn= $#ligne_label;
+$lca=$nn+1;
+
+print "\nSamples processed: \n"; 
+
+$ct=2;
+
+while($ct <= $nb_labels)
+{
+print "$ligne_label[$ct]\n";
+$fichier="$ligne_label[$ct]_nonnormalized_NN.txt";
+$fichier_csv="$ligne_label[$ct]_nonnormalized_NN.csv";
+$colonne=$ct+1;
+
+`cut  "\t" -f$colonne,$nn  $path_results/OTU_distribution_tax.txt >  $path_results/samples/$fichier 2>/dev/null`;
+`sed "s/;/\t/g" $path_results/samples/$fichier | sed "1d" > $path_results/samples/$fichier_csv`;
+
+$fichier="$ligne_label[$ct]_nonnormalized_LCA.txt";
+$fichier_csv="$ligne_label[$ct]_nonnormalized_LCA.csv";
+`cut  "\t" -f$colonne,$lca  $path_results/OTU_distribution_tax.txt > $path_results/samples/$fichier 2>/dev/null`;
+`sed "s/;/\t/g" $path_results/samples/$fichier  | sed "1d" > $path_results/samples/$fichier_csv`;
+
+$ct++;
+
+}
+
+print "\nTaxonomic distribution processed by Krona...\n";
+
+`mkdir $path_results/Figures 2>/dev/null`;
+`ktImportText $path_results/samples/*_nonnormalized_NN.csv -o $path_results/Figures/Fig_taxo_distribution_NN.html `;
+`ktImportText $path_results/samples/*_nonnormalized_LCA.csv -o $path_results/Figures/Fig_taxo_distribution_LCA.html`;
+
+
+# From OTU_distribution_tax_normalized_XX.txt (n° of samples could be different from non normalized data)
+open (NN,"$path_results/OTU_distribution_tax_normalized_NN.txt");
+@NN=<NN>;
+@ligne_tag=split('\t',$NN[0]);
+
+
+$nb_labels=$#ligne_tag-1;
+$taxonomy= $#ligne_tag+1; # indice du cut
+
+$ct=1;
+
+	while($ct <= $nb_labels)
+	{
+
+	$fichier="$ligne_tag[$ct]_normalized_NN.txt";
+	$fichier_csv="$ligne_tag[$ct]_normalized_NN.csv";
+	$colonne=$ct+1;
+
+	
+
+	`cut  "\t" -f$colonne,$taxonomy  $path_results/OTU_distribution_tax_normalized_NN.txt >  $path_results/samples/$fichier 2>/dev/null`;
+	`sed "s/;/\t/g" $path_results/samples/$fichier | sed "1d" > $path_results/samples/$fichier_csv`;
+
+
+	$fichier="$ligne_tag[$ct]_normalized_LCA.txt";
+	$fichier_csv="$ligne_tag[$ct]_normalized_LCA.csv";
+	`cut  "\t" -f$colonne,$taxonomy  $path_results/OTU_distribution_tax_normalized_LCA.txt > $path_results/samples/$fichier 2>/dev/null`;
+	`sed "s/;/\t/g" $path_results/samples/$fichier  | sed "1d" > $path_results/samples/$fichier_csv`;
+
+
+	$ct++;
+
+	}
+
+if (`ls $path_results/samples/*_normalized_*.csv | wc -l 2>/dev/null`> 0)
+{
+`ktImportText $path_results/samples/*_normalized_NN.csv -o $path_results/Figures/Fig_taxo_distribution_normalized_NN.html `;
+`ktImportText $path_results/samples/*_normalized_LCA.csv -o $path_results/Figures/Fig_taxo_distribution_normalized_LCA.html`;
+}
+
+`rm -R $path_results/samples 2>/dev/null`;
+
+print "\nTaxonomic distribution can be viewed by any browser in the folder : $path_results/Figures_taxa_distribution\n\n";
+
+}
+else
+{
+print "\nKrona software is not installed, process aborted ... \n\n"; 
+}
+
+### End Krona process #####
+
+
+
+### Begin  R process #####
+
+print "Richness, diversity, rarefaction curves and heatmap processed by R with vegan and phyloseq packages...\n";
+
+if(`which R | wc -l` > 0) 
+{
+
+`mkdir $path_results/R_output 2>/dev/null`;
+
+
+open (OTU,"$path_results/OTU_distribution_tax.txt");
+@OTU=<OTU>;
+@ligne_tag=split('\t',$OTU[0]);
+$nb_labels=$#ligne_tag-1;
+$taxonomyNN= $#ligne_tag; # indice du cut
+$taxonomyLCA= $#ligne_tag+1; # indice du cut
+
+`cut  "\t" -f2-$nb_labels $path_results/OTU_distribution_tax.txt > $path_results/R_output/OTU.tmp  2>/dev/null`;
+`sed "s/OTU_Seed\t//g" $path_results/R_output/OTU.tmp > $path_results/R_output/OTU.txt 2>/dev/null`;  
+#`sed "s/OTU_Id\t//g" $path_results/R_output/OTU.tmp > $path_results/R_output/OTU.txt 2>/dev/null`;   ### modif 5/11/2014
+
+open (OTU,"$path_results/OTU_distribution_tax_normalized_NN.txt");
+@OTU=<OTU>;
+@ligne_tag=split('\t',$OTU[0]);
+$nb_labels=$#ligne_tag;
+
+`cut  "\t" -f1-$nb_labels $path_results/OTU_distribution_tax_normalized_NN.txt > $path_results/R_output/OTU_normalized_NN.tmp  2>/dev/null`;
+`sed "s/OTU_Seed\t//g" $path_results/R_output/OTU_normalized_NN.tmp > $path_results/R_output/OTU_normalized_NN.txt 2>/dev/null`;   
+#`sed "s/OTU_Id\t//g" $path_results/R_output/OTU_normalized_NN.tmp > $path_results/R_output/OTU_normalized_NN.txt 2>/dev/null`;   ### modif 5/11/2014
+
+open (OTU,"$path_results/OTU_distribution_tax_normalized_LCA.txt");
+@OTU=<OTU>;
+@ligne_tag=split('\t',$OTU[0]);
+$nb_labels=$#ligne_tag;
+`cut  "\t" -f1-$nb_labels $path_results/OTU_distribution_tax_normalized_LCA.txt > $path_results/R_output/OTU_normalized_LCA.tmp  2>/dev/null`;
+`sed "s/OTU_Seed\t//g" $path_results/R_output/OTU_normalized_LCA.tmp > $path_results/R_output/OTU_normalized_LCA.txt 2>/dev/null`;  
+#`sed "s/OTU_Id\t//g" $path_results/R_output/OTU_normalized_LCA.tmp > $path_results/R_output/OTU_normalized_LCA.txt 2>/dev/null`;   ### modif 5/11/2014
+
+`cut  "\t" -f$taxonomyNN  $path_results/OTU_distribution_tax.txt >  $path_results/R_output/taxo_NN.tmp 2>/dev/null`;
+`cut  "\t" -f$taxonomyLCA  $path_results/OTU_distribution_tax.txt >  $path_results/R_output/taxo_LCA.tmp 2>/dev/null`;	
+
+# Formating the taxonomy with 7 levels for phyloseq package : Domain, Phylum, Class, Order, Family, Genus,  Species
+open(TAX, "$path_results/R_output/taxo_NN.tmp");
+open(CSV, ">$path_results/R_output/taxo_NN.csv");
+@TAX=<TAX>;
+$nb_tax=$#TAX;
+print CSV "Domain;Phyla;N3;N4;N5;N6;N7;\n";
+$ct=1; # entête évité
+
+	while($ct<=$nb_tax)
+	{
+	chomp($TAX[$ct]);
+	@ligne_tax=split(';',$TAX[$ct]);
+	
+
+		
+		if($#ligne_tax >= 6)
+		{
+		for($i=0; $i<=6; $i++){print CSV "$ligne_tax[$i];"}
+		print CSV "\n";
+		}
+		else
+		{
+		for($i=0; $i<=$#ligne_tax; $i++){print CSV "$ligne_tax[$i];"}
+		for($i=$#ligne_tax; $i<=5; $i++){print CSV ";"}
+		print CSV "\n";
+		
+		}
+
+
+	$ct++;
+	}
+	
+
+
+# R -> files : Richness_diversity.txt
+`R --vanilla --args "$path_results/R_output/" < $path_intallation/post_process_v4.R 2>/dev/null`;# 
+
+
+	if (`ls $path_results/R_output/*.jpg | wc -l 2>/dev/null`> 0)
+	{
+	# Formating R results
+	`sed "s/Observed/\tObserved/g" $path_results/Richness_diversity.tmp > $path_results/Richness_diversity.txt`;
+	
+		if(`ls $path_results/Richness_diversity_norm.tmp | wc -l 2>/dev/null`> 0 )
+		{
+		`printf "\n\nNormalized data\n" >> $path_results/Richness_diversity.txt`;
+		`sed "s/Observed/\tObserved/g" $path_results/Richness_diversity_norm.tmp >> $path_results/Richness_diversity.txt`;
+		}
+	print "Richness and diversity indices computed after phylogenetic affiliation are in the file: Richness_diversity.txt\n";
+
+	`ln -s   $path_results/R_output/*.jpg   $path_results/Figures 2>/dev/null `;
+	print "Rarefaction curves and heatmap generated\n";
+	print "The R results and the phyloseq objects were saved in the folder : \n$path_results/R_output\nOpen a terminal and type R for processing other analyses\n\n";
+	}
+	else
+	{
+	print "Process R with phyloseq aborted, check the packages R installed\n\n";
+	
+	}
+
+`rm $path_results/*.tmp 2>/dev/null`;
+`rm $path_results/R_output/*.tmp 2>/dev/null`;
+
+}
+else
+{
+print "R software is not installed, process aborted ... \n"; 
+}
+
+### End  R process #####
+
+
+
+
+
+
+
+
+
+
+

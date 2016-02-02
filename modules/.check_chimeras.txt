@@ -1,0 +1,64 @@
+#!/usr/bin/perl -w
+use strict;
+use warnings;
+
+#############################
+	  # check chimeras  #
+#############################
+
+sub check_chimeras {
+
+	my $sample_name;
+	my $fasta_dir;
+	my $uclust = "USEARCH_PATH";
+	($sample_name, $fasta_dir) = @_ ; 
+
+	####
+	my %all_seq; my $seq_name;
+	open (SEQ, $fasta_dir."seqAll_".$sample_name.".fasta"); 
+	while (<SEQ>){
+		chomp ($_);
+		if ($_ =~ m/^>(.+)/){
+			$seq_name = $1;
+		}
+		else {
+			$all_seq{$seq_name} .= $_;
+		}
+	}
+	close SEQ;
+
+	my $aa = qx($uclust --uchime $fasta_dir"seqAll_"$sample_name".fasta" --report $fasta_dir"/"$sample_name."rep" --reportx $fasta_dir"/"$sample_name".repx");
+
+	my %chim_seq; my $chim_name;
+	open (REPX, $fasta_dir."/".$sample_name.".repx");
+	while (<REPX>){
+		chomp ($_);
+		if ($_ =~ m/Query   \(  .+\) (.+)/){
+			my $chim_name = $1;
+			$chim_seq{$chim_name}++;
+		}
+	}
+	close REPX;
+
+	#my $chimerafree = "seqAll_".$sample_name."_chimerafree.fasta";
+
+	open (F3, ">".$fasta_dir."seqAll_".$sample_name."_chimerafree.fasta");
+	foreach my $k (keys (%all_seq)){
+		if (!(exists($chim_seq{$k}))){
+			print F3 ">$k\n$all_seq{$k}\n";
+		}
+	}
+	close F3;
+	
+	#return ($chimerafree);
+
+	`rm $fasta_dir"/"$sample_name".repx"` ;
+	`rm $fasta_dir"/"$sample_name".rep"` ;
+	#`mv $fasta_dir"seqAll_"$sample_name"_chimerafree.fasta" $fasta_dir"SeqAll_"$sample_name".fasta"`;
+	
+}
+1;
+
+
+
+

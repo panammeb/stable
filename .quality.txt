@@ -1,0 +1,222 @@
+#!/usr/bin/perl
+use warnings;
+use strict;
+ 
+use lib 'MODULES_PATH'; 
+
+my ($USAGE) =  "\n\n\t****** USAGE of $0 PROGRAM ******\n\n\n\n\tUSAGE: perl $0 <panam.ini file> \n\n\n\n";
+die "$USAGE" if ((scalar(@ARGV))< 1);
+my $option_file = $ARGV[0];
+chomp($option_file);
+
+die "\n\n\t=> Cannot find configuration file: $option_file.\n\n" unless (-e $option_file);
+die "\n\n\t=> Configuration file, $option_file, appears to be empty!\n\n" if (-z $option_file);
+
+use parse_ini ;
+my @parse = &parse_ini($option_file);
+
+my $NGS_id_Results = $parse[0];
+die "\n\n\tOutput directory for NGS analyses is not defined. Check $option_file.\n\n" unless ( defined $NGS_id_Results);
+unless (-d $NGS_id_Results) { mkdir $NGS_id_Results || die "Could not create Directory $NGS_id_Results !\n"; }
+
+my $dataType = $parse[1];
+die "\n\n\t Data Type value missed. Check panam.ini.\n\n" unless ($dataType ne "");
+die "\n\n\t Data Type value is not correct. Check $option_file.\n\n" unless (($dataType eq "454Roche") or ($dataType eq "IlluminaMiSeq"));
+
+my $MinSeqLength = $parse[4];
+die "\n\n\t Min Length cutoff missed. Check $option_file.\n\n" unless ($MinSeqLength ne "");
+
+my $MaxSeqLength = $parse[5];
+die "\n\n\t Max Length cutoff missed. Check $option_file.\n\n" unless ($MaxSeqLength ne "");
+
+my $Nbase = $parse[8];
+die "\n\n\t Ambiguous base value missed. Check $option_file.\n\n" unless ($Nbase ne "");
+die "\n\n\t Ambiguous base value should be yes or no. Check $option_file.\n\n" unless (($Nbase eq "yes") or ($Nbase eq "no")) ;
+
+my $inputSeqNameF = $parse[2];
+
+die "\n\n\tCannot find sequence file. Check $option_file.\n\n" unless (($inputSeqNameF ne "") and (-e $inputSeqNameF));
+die "\n\n\tSequence file, $inputSeqNameF, appears to be empty!\n\n" if (-z $inputSeqNameF);
+chomp ($inputSeqNameF);
+
+#### fuzznuc and primers
+
+#my $path_fuzznuc = $parse[14];
+#my $fuzznuc="";
+#$fuzznuc = `which fuzznuc`;
+#chomp($fuzznuc);
+
+#if (!(-e $fuzznuc)) {
+#	if (defined $path_fuzznuc) {
+#		$fuzznuc=$path_fuzznuc ;
+#	}
+#	else {
+#		die "\n\n\tFuzznuc cannot be found. Check $option_file.\n\n";
+#	}
+#}
+
+my $fuzznuc = "FUZZNUC_PATH";
+
+
+
+my $forward = $parse[15];
+my $reverse = $parse[16];
+my $pmismatch = $parse[17] ;
+my $match = $parse[18];
+
+die "\n\n\t Match primer value missed. Check $option_file.\n\n" unless ($match ne "");
+die "\n\n\t Match primer value is not correct. Check $option_file.\n\n" unless (($match eq "both") or ($match eq "forward") or ($match eq "reverse"));
+
+die "\n\n\t Match primer value is set at 'both' but can not find forward primer. Check panam.ini.\n\n" if (($match eq "both") and !(defined $forward));
+die "\n\n\t Match primer value is set at 'forward' but can not find forward primer. Check panam.ini.\n\n" if (($match eq "forward") and !(defined $forward));
+die "\n\n\t Forward primer value is not correct. Check $option_file.\n\n" if ((defined $forward) and ($forward!~ /[ATCGUatcgu]/));
+
+die "\n\n\t Match primer value is set at 'both' but can not find reverse primer. Check panam.ini.\n\n" if (($match eq "both") and !(defined $reverse));
+die "\n\n\t Match primer value is set at 'reverse' but can not find reverse primer. Check panam.ini.\n\n" if (($match eq "reverse") and !(defined $reverse));
+die "\n\n\t Reverse primer value is not correct. Check $option_file.\n\n" if ((defined $reverse) and ($reverse!~ /[ATCGUatcgu]/));
+
+die "\n\n\t Invalid value for the mismatch that a primer may have on the sequences. Thse mimsatch value must be between 0 and 5. Check $option_file.\n\n" unless (($pmismatch >=0) and ($pmismatch <= 5)) ;
+
+#######
+
+####### barcode file
+my $barIn= $parse[13];
+
+my $barcode;
+my $nbrBar;
+my $ficBar;
+
+if (!(defined $barIn ) or ($barIn eq "")) {
+	$barcode =0;
+	$nbrBar = 0;
+	$ficBar = "no barcode file" ;
+}
+
+elsif ((defined $barIn) and ($barIn ne "")){
+	$barcode = 1;
+	$ficBar = $barIn;
+
+	# See if the barcode file exist and contains something
+	die "\n\n\tCannot find barcode file: $barIn. Check $option_file.\n\n" unless (-e $barIn);
+	die "\n\n\tBarcode file, $barIn, appears to be empty!\n\n" if (-z $barIn);
+
+	open (BB, $barIn);
+	my @barIN= <BB>;
+	close BB;
+
+	foreach my $e (@barIN) {
+		if ($e !~ /\t/) {die "\n\n\tYour bar code file $barIn does not seem to be in the right format. Check $option_file.\n\n";}
+		my @ty = split(/\t/, $e);
+		if (($ty[0] =~ /^\d/) or ($ty[0]=~ /_/) or ($ty[0]=~ /\//)) { die "\n\n\tThe bar code Ids in $barIn should start with no number and contain no underscorses. Check $option_file.\n\n";}
+		if ($ty[1] !~ /[ATCGU]/i) {die "\n\n\tYour bar code file $barIn does not seem to be in the right format. Check $option_file.\n\n";}
+		my $nbr = `wc -l $barIn`;
+		if ($nbr =~ /(\d.?)\s/) { $nbrBar = $1} 
+	}
+}
+
+
+#### input files and parameters
+
+my $MinOverlap = $parse[6]; 
+my $MismatchOverlap = $parse[7]; 
+my $inputSeqNameR = $parse[10];
+my $merge = $parse[11];
+my $score = $parse[12];
+
+my $fasta_dir;
+
+if ($dataType eq "IlluminaMiSeq") {
+	## inputSeqNameF format and integrity
+	my $ligneF1= `sed -n '1p' $inputSeqNameF`;
+	my $ligneF2= `sed -n '2p' $inputSeqNameF`;
+	if (($ligneF1 !~ /^@/) or ($ligneF2 !~ /^[ATCGUNatcgun]/)) {
+		die "\n\n\tYour forward fastq file $inputSeqNameF does not seem to contain sequences in fastq format.\n\n";
+	}
+
+	## inputSeqNameR format and integrity
+	die "\n\n\tCannot find reverse sequence file. Check $option_file.\n\n" unless (($inputSeqNameR ne "") and (-e $inputSeqNameR));
+	die "\n\n\tSequence file, $inputSeqNameF, appears to be empty!\n\n" if (-z $inputSeqNameF);
+	chomp ($inputSeqNameR);
+	my $ligneR1= `sed -n '1p' $inputSeqNameR`;
+	my $ligneR2= `sed -n '2p' $inputSeqNameR`;
+	if (($ligneR1 !~ /^@/) or ($ligneR2 !~ /^[ATCGUNatcgun]/)) {
+		die "\n\n\tYour reverse fastq file $inputSeqNameR does not seem to contain sequences in fastq format.\n\n";
+	}
+	
+	## parameters for merging paired-end reads
+	die "\n\n\t Invalid value for the minimum overlap between forward and reverse reads. Check $option_file.\n\n" unless (($MinOverlap ne "") and ($MinOverlap > 0));
+
+	die "\n\n\t Merging option missed. Check panam.ini.\n\n" unless ($merge ne "");
+	die "\n\n\t Invalid value for merging option. Check panam.ini.\n\n" unless (($merge eq "fix_sequences") or ($merge eq "perfect_match"));
+ 
+	if ($merge eq "perfect_match") {
+		die "\n\n\t Invalid value for the mismatch on the overlap between forward and reverse reads. Check $option_file.\n\n" unless (($MismatchOverlap ne "") and ($MismatchOverlap >=0)) ;
+	}
+	
+	if ($merge eq "fix_sequences") {
+		die "\n\n\t Invalid value for the score that a sequence must meet to be kept in the output. Thse score must be between 0 and 1. Check $option_file.\n\n" unless (($score >0) and ($score < 1)) ;
+	}
+
+	use merge_pairs_v2 ;
+	print "$inputSeqNameF\n$inputSeqNameR\n$MinSeqLength\n$MaxSeqLength\n$Nbase\n$MinOverlap\n$MismatchOverlap\n$merge\n$score\n";
+	my @merge_results = &merge_pairs_v2($inputSeqNameF, $inputSeqNameR, $MinSeqLength, $MaxSeqLength, $Nbase, $MinOverlap, $MismatchOverlap, $NGS_id_Results, $merge, $score);
+	$fasta_dir = $merge_results[0];
+
+	use demultiplex_miseq;
+	demultiplex_miseq ($NGS_id_Results, $fasta_dir, $fuzznuc, $forward,$reverse, $pmismatch, $match, $barIn, $barcode, $MinSeqLength); #### ajout $MinSeqLength 10/6/2014
+
+
+}
+
+my $inputQualName = $parse[3];
+my $MinQualScore = $parse[9] ;
+
+
+if ($dataType eq "454Roche") {
+	## inputSeqNameF format and integrity
+	my $ligneSeq1= `sed -n '1p' $inputSeqNameF`;
+	my $ligneSeq2= `sed -n '2p' $inputSeqNameF`;
+	if (($ligneSeq1 !~ /^>/) or ($ligneSeq2 !~ /^[ATCGUNatcgun]/)) {
+		die "\n\n\tYour sequence file $inputSeqNameF does not seem to contain sequences in fasta format.\n\n";
+	}
+
+	## inputQualName format and integrity
+	chomp ($inputQualName);
+	die "\n\n\tCannot find quality file. Check $option_file.\n\n" unless (-e $inputQualName);
+	die "\n\n\tQuality file, $inputQualName, appears to be empty!\n\n" if (-z $inputQualName);
+
+	my $ligneQ1= `sed -n '1p' $inputQualName`;
+	my $ligneQ2= `sed -n '2p' $inputQualName`;	
+	if (($ligneQ1 !~ /^>/) or ($ligneQ2 !~ /\d/)) {
+		die "\n\n\tYour file quality file $inputQualName does not seem to be in the right format.\n\n";
+	}
+
+	## parameters for quality scores
+	die "\n\n\t Quality cutoff missed. Check $option_file.\n\n" unless ($MinQualScore ne "");
+
+	use trim_pangea ;
+	my $pangea_results = &trim_pangea($inputSeqNameF, $MinSeqLength, $MaxSeqLength, $Nbase, $NGS_id_Results, $inputQualName);
+	$fasta_dir = $pangea_results;
+
+
+	##### demultiplexing
+	use demultiplex;
+	demultiplex($NGS_id_Results, $fasta_dir, $fuzznuc, $forward,$reverse, $pmismatch, $match, $barIn, $barcode, $MaxSeqLength, $MinSeqLength) ;
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

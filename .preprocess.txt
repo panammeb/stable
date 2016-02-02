@@ -1,0 +1,1158 @@
+#!/usr/bin/perl
+use warnings;
+use strict;
+
+use lib 'MODULES_PATH';
+ 
+
+my ($USAGE) =  "\n\n\t****** USAGE of $0 PROGRAM ******\n\n\n\n\tUSAGE: perl $0 <panam.ini file> \n\n\n\n";
+die "$USAGE" if ((scalar(@ARGV))< 1);
+my $option_file = $ARGV[0];
+chomp($option_file);
+
+die "\n\n\t=> Cannot find configuration file: $option_file.\n\n" unless (-e $option_file);
+die "\n\n\t=> Configuration file, $option_file, appears to be empty!\n\n" if (-z $option_file);
+
+my $uclust = "USEARCH_PATH";
+
+
+use parse_ini ;
+my @parse = &parse_ini($option_file);
+
+my $NGS_id_Results = $parse[0];
+die "\n\n\tOutput directory for NGS analyses is not defined. Check $option_file.\n\n" unless ( defined $NGS_id_Results);
+unless (-d $NGS_id_Results) { mkdir $NGS_id_Results || die "Could not create Directory $NGS_id_Results !\n"; }
+
+my $seqFolder = $parse[19];   ### 
+die "\n\n\tDirectory with fasta files to be processed is not defined. Check $option_file.\n\n" unless ( defined $seqFolder);
+
+#my $barIn = $parse[13];		#### modif 05/03/2014
+
+### modif 10/03/2014
+#if ($seqFolder !~ /\/$/) { $seqFolder.="/"}
+#my @seqFolder = <$seqFolder*fasta>;	
+#foreach my $file (@seqFolder) { 
+#
+#	die "\n\n\tCannot find sequence file: $file. Check $option_file.\n\n" unless (-e $file);
+#	die "\n\n\tSequence file, $file, appears to be empty!\n\n" if (-z $file);
+#	
+#	my $ligne1= `sed -n '1p' $file`;
+#	my $ligne2= `sed -n '2p' $file`;	
+#	if (($ligne1 !~ /^>/) or ($ligne2 !~ /^[ATCGU]/i)) {
+#		die "\n\n\tYour file $file does not seem to contain sequences in fasta format.\n\n";
+#	}
+#}
+#################"
+
+my $MinSeqLength = $parse[4];
+die "\n\n\t Min Length cutoff missed. Check $option_file.\n\n" unless ($MinSeqLength ne "");
+
+
+my $Clst = $parse[20]; 
+die "\n\n\t Clustering cutoff missed. Check panam.ini.\n\n" unless ($Clst <=1);
+die "\n\n\t Invalid input! clustering cutoff must be specified as a fractional identity in the range 0.0 to 1.0\n\n" unless (($Clst ne "") and ($Clst >=0));
+
+my $nbr_seq_norm = $parse[21];
+die "\n\n\t Invalid number of sequences to pick for the normalization! Check panam.ini.\n\n" if ((defined $nbr_seq_norm) and ($nbr_seq_norm !~ /^\d+$/));
+if (!(defined $nbr_seq_norm)) { $nbr_seq_norm = '200'}
+
+
+###### ajout 05/03/2014
+my $pool = $parse[22];
+
+die "\n\n\t pooling value missed. Check panam.ini.\n\n" unless (($pool ne ""));
+die "\n\n\t Invalid pooling value!\n\n" unless (($pool eq "yes") or ($pool eq "no"));	
+
+### modif 10/03/2014
+
+if ($seqFolder !~ /\/$/) { $seqFolder.="/"}
+`cp $seqFolder"seqAll_checkPrimers.fasta" $NGS_id_Results `;
+`rm $seqFolder"seqAll_checkPrimers.fasta" `;
+
+my @seqFolder = <$seqFolder*fasta>;	
+foreach my $file (@seqFolder) { 
+
+	die "\n\n\tCannot find sequence file: $file. Check $option_file.\n\n" unless (-e $file);
+	#die "\n\n\tSequence file, $file, appears to be empty!\n\n" if (-z $file); ### modif 10/6/2014
+	
+	if ( !(-z $file) ) { ### modif 10/6/2014
+		my $ligne1= `sed -n '1p' $file`;
+		my $ligne2= `sed -n '2p' $file`;	
+		if (($ligne1 !~ /^>/) or ($ligne2 !~ /^[ATCGU]/i)) {
+			die "\n\n\tYour file $file does not seem to contain sequences in fasta format.\n\n";
+		}
+	}
+}
+
+my %so;
+
+##### fin ajout
+
+my %barcodes;
+my %seq; my $idSeq;
+
+### split
+foreach my $file (@seqFolder) {
+	my $id;
+	if ($file =~ /(\/.*)seqAll_(.*).fasta/ ) { 
+		$id = $2; 
+
+		$so{$id} = 1 ; ##### ajout 05/03/2014
+
+		open (SS, $file) or warn "can not open file $file";
+		while (<SS>) {
+			if ($_=~ /^>(.*?)\n/) {
+				$idSeq = $1; 
+			}
+
+			else {
+				chomp($_);
+				$seq{$idSeq}.=$_;
+			}
+		}
+		close SS;
+	}
+	
+#	barcodes{$id}=1; #### modif 05/03/2014
+
+	my $lines = `grep '>' -c $file`;
+	chomp ($lines);
+	if ($lines > 70000) { 
+		`split -l 100000 -d --suffix-length=6 $file $seqFolder/$id"_splitted_"`; ##### 70000 et 100000 pour test, à voir le seuil IRL !!!!
+	}
+	else {
+		`cp $file $seqFolder/$id"_splitted"`;
+	}
+}
+
+my $preprocess_output = $NGS_id_Results."/preprocess_output";
+`mkdir $preprocess_output`;
+
+my %OTU_seq; ##################### ajout 29/01/2014, on récupère l'OTU de chaque seq
+
+### dereplicate
+my @splittedFiles = <$seqFolder*splitted*> ;
+foreach my $split (@splittedFiles) { 
+	chomp($split);
+	print "split --- $split\n"; 
+	
+	if ( !(-z $split) ) { ### modif 10/6/2014
+
+		`$uclust --sort $split --output $split"_sorted" 2>&1`;
+		`$uclust --input $split"_sorted" --uc $split".uc" --id 0.99 --optimal --rev 2>&1`;
+		`$uclust --uc2fasta $split".uc" --input $split --output $split"_99.fasta_tmp" --types S 2>&1`;
+	
+		open (G, $split."_99.fasta_tmp");
+		open (GG, ">".$split."_99.fasta");
+		my @g = <G>;
+		foreach my $e (@g) {
+			if ($e =~ /^>\d+\|\*\|(.*?)\n/) {
+				print GG ">".$1."\n"
+			}
+			else {
+				print GG $e
+			}
+		}
+		close G; close GG;
+		`rm $split"_99.fasta_tmp"`; 
+	} ### fin modif 10/6/2014
+}
+
+my %derep;
+my @keepFiles = <$seqFolder*>;
+foreach my $keep (@keepFiles) {
+	### modif 10/03/2014
+	if ($keep =~ /.*fasta_dir\/(.*)_splitted_.*?99.fasta/) {
+		my $keep1 = $1; 	
+		foreach my $tag (keys %so) { 
+			if ($keep1 eq $tag) {
+				`cat $keep >> $preprocess_output/$tag"_dereplicated.fasta"`
+			}
+		}
+	### fin modif 	
+	}
+
+	### récupérer pour chaque seed dérépliquée ses réplicats
+
+	if ($keep =~ /\.uc$/) {
+		open (DER, $keep) or die "can not open file $keep !";
+		while (<DER>) {
+			my @t = split (/\t/, $_);	
+			if ($t[0] eq "H") { 
+				chomp($t[8]); chomp ($t[9]);
+				$derep{$t[9]} .= $t[8].", " ;
+			}
+		}
+
+		my @DER= <DER>;
+		foreach my $line (@DER) {
+			my @t = split (/\t/, $_);
+			if ($t[0] eq "S") {	
+				chomp($t[8]);
+				if (exists $derep {$t[8]}) {}
+				else {
+					$derep{$t[8]} .= $t[8].", " ;
+				}	
+			}
+		}
+		close DER;
+	 }
+
+#	if ($keep =~ /splitted/) { `rm $keep`}
+}
+
+
+##################" modifié 05/03/2014
+#my %so = ();
+#if ((defined $barIn ) or ($barIn ne "")) {
+#	my $socat = `cat -n $barIn | awk -F"\t" '{ print\$1"\t"\$2 }'`;
+#	my @socat = split("\n", $socat);
+#	
+#	foreach my $line (@socat) {
+#		my ($val, $key) = split("\t", $line);
+#		$so{$key} = $val;
+#	}
+#}
+############################# fin modif
+
+
+### cluster
+
+opendir PREP, $preprocess_output || die "can not open $preprocess_output";
+my @files = readdir PREP;
+
+my %sample_name; my %index; my %nb_clust;
+
+print "Clustering and rarefaction ...\n";
+
+foreach my $file (@files) {
+	if ($file=~ /^(.*?)_dereplicated.fasta/) { 
+		my %seq_sample;
+		my $e = $1;
+		print "Sample ---- $e\n";
+
+		if ( !(-z $preprocess_output."/".$e."_dereplicated.fasta") ) {  
+			$sample_name{$e}=1; 
+		}
+
+		open (S, $preprocess_output."/".$e."_dereplicated.fasta") or die "can not open file";
+		my $aa;
+		while (<S>) {
+			if ($_=~ /^>(.*?)\n/) {
+				$aa = $1; 
+			}
+
+			else {
+				chomp($_);
+				#$seq{$aa}.=$_;
+				$seq_sample{$aa}.=$_
+			}
+		}
+		close S;
+
+		my $keys_seq_sample = keys (%seq_sample);
+		$index{$e}{'derepSeq'} = $keys_seq_sample; 
+
+
+		`$uclust --sort $preprocess_output"/"$e"_dereplicated.fasta" --output $preprocess_output"/"$e"_sorted" 2>&1`;
+		`$uclust --input $preprocess_output"/"$e"_sorted" --uc $preprocess_output"/"$e".uc" --id $Clst --optimal --rev 2>&1`;
+		`$uclust --uc2fasta $preprocess_output"/"$e".uc" --input $preprocess_output"/"$e"_dereplicated.fasta" --output $preprocess_output"/"$e"_Seq_OTU_tmp" --types S `;
+		
+ 		open (X, $preprocess_output."/".$e."_Seq_OTU_tmp");
+		open (XX, ">".$preprocess_output."/".$e."_Seq_OTU");
+		my @g = <X>;
+		foreach my $e (@g) {
+			if ($e =~ /^>\d+\|\*\|(.*?)\n/) {
+				print XX ">".$1."\n"
+			}
+			else {
+				print XX $e
+			}
+		}
+		close X; close XX;
+		`rm $preprocess_output"/"$e"_Seq_OTU_tmp"`; 
+
+		
+		my $resultuc = $preprocess_output."/".$e.".uc";		
+
+		die "\n\n\tCannot find USEARCH output: $resultuc.\n\n" unless (-e $resultuc);
+		die "\n\n\tUSEARCH output, $resultuc, appears to be empty!\n\n" if (-z $resultuc);  
+
+		open (F, $preprocess_output."/".$e.".uc") ;
+
+		my %seed; my %seed_seq;
+		my $n=0; my %read_to_cluster; my $max=0;
+
+		while (<F>) {
+			my @t = split (/\t/, $_); 
+
+			if ($t[0] eq "H") {
+				if (exists $derep{$t[8]}) {
+					my @x = split(/, /, $derep{$t[8]});
+					my $x = $#x + 1;
+					$n+= $x;
+				}
+				else {
+					$n++
+				}
+
+				$read_to_cluster{$e}{$n}=$t[1];
+				chomp ($t[9]); chomp ($t[8]);
+				$seed_seq{$t[9]} .= $t[8].", " ;
+				$seed{$t[9]}++ ;
+			}
+		
+			if ($t[0] eq "S") {
+				if (exists $derep{$t[8]}) {
+					my @x = split(/, /, $derep{$t[8]});
+					my $x = $#x + 1;
+					$n+= $x;
+				}
+				else {
+					$n++
+				}
+				$read_to_cluster{$e}{$n}=$t[1];	
+				chomp ($t[8]);
+				$seed_seq{$t[8]} .= $t[8].", " ;	
+				$seed{$t[8]}++ ;
+			}
+		}
+		close F;
+
+		$index{$e}{'nbrOTU'} = keys (%seed);
+
+		################## generate seeds 'files (*_Seq_OTU) and nbr_seq / OTU (*_OTU) avec les vrais abondances des OTUs dérepliqués
+
+		my %seed_seq_fin; my %seed_fin;
+		
+		foreach my $k (keys %seed_seq) {
+			my $replic; 
+			my $seed_occ ;
+
+			my @pp = split(/, /, $seed_seq{$k});
+
+			foreach my $ee (@pp) {
+				if (exists $derep{$ee}) {
+					$replic .= $ee.", ".$derep{$ee} ; 
+					my @p = split(/, /, $derep{$ee});
+
+					##################### ajout 29/01/2014, on récupère l'OTU de chaque seq
+					foreach my $q (@p) {
+						$OTU_seq{$q} = $k
+					}
+					####################"
+
+					my $p = $#p +2;
+					$seed_occ += $p;
+				}
+				else {
+					$replic .= $ee.", "; 
+					$seed_occ++;
+
+					##################### ajout 29/01/2014, on récupère l'OTU de chaque seq
+					$OTU_seq{$ee} = $k
+					####################"
+				}
+			}
+
+			$seed_seq_fin{$k} = $replic;
+			$seed_fin{$k} = $seed_occ;
+		}
+
+		open (R, ">".$preprocess_output."/".$e."_OTU");
+		my $i=1; my $n1=0; my $n2=0; 	
+		my $ninfeg10=0; my $nsup10=0; my $Nrare=0; my $gamma;
+		my $n3=0; my $n4=0; my $n5=0; my $n6=0; my $n7=0; my $n8=0; my $n9=0; my $n10=0;
+		print R "OTU\tSeed sequence\t#Sequences\n";
+
+		foreach my $f ((sort { $seed_fin {$b} <=> $seed_fin {$a}} keys %seed_fin) ){ 
+			if ($seed_fin{$f} == 1 ) {$n1++}
+			if ($seed_fin{$f} == 2 ) { $n2++}
+
+		############### ace
+
+			if ($seed_fin{$f} == 3 ) {$n3++}
+			if ($seed_fin{$f} == 4 ) {$n4++}
+			if ($seed_fin{$f} == 5 ) {$n5++}	
+			if ($seed_fin{$f} == 6 ) {$n6++}	
+			if ($seed_fin{$f} == 7 ) {$n7++}
+			if ($seed_fin{$f} == 8 ) {$n8++}	
+			if ($seed_fin{$f} == 9 ) {$n9++}
+			if ($seed_fin{$f} == 10 ) {$n10++}
+
+			if ($seed_fin{$f} <= 10) {$ninfeg10++}	
+			if ($seed_fin{$f} > 10) {$nsup10++}		
+
+			$index{$e}{'nbrseq'}+=$seed_fin{$f} ;
+
+			print R "$i\t$f\t$seed_fin{$f}\t$seed_seq_fin{$f}\n";
+			$i++;
+		}
+		close R; 
+		
+##########################################################
+
+		my $seuil = $index{$e}{'nbrseq'}/10; 
+		my $int;
+		if ($seuil >= 1) {
+			$int = int ($seuil)
+		}
+		else {
+			$int = 1
+		} 
+
+		if ($n> $max) {
+			$max = $n
+		}
+
+		my $nb_a_ech=0;
+		my $nb_ech=int($n/$int); 
+
+		while($nb_ech>0){
+			$nb_a_ech+=$int;
+
+			my %vu_clust;
+			my %vu_read;
+			my $reste_a_ech=$nb_a_ech;
+
+			while($reste_a_ech>0){
+				my $ech=rand()*$n;
+				$ech=int($ech); 
+				if (defined($vu_read{$e}{$ech})){}
+				else{
+					$vu_read{$e}{$ech}=1;
+					if( defined $read_to_cluster{$e}{$ech}) { 
+						 $vu_clust{$read_to_cluster{$e}{$ech}}++;
+					}
+					$reste_a_ech--;
+				}
+			}
+			my @liste_clust=keys %vu_clust; 
+			$nb_clust{$e}{$nb_a_ech}=$#liste_clust+1;
+			$nb_ech--;
+		}
+
+		##################Schao
+
+		if ((($n1 >0) and ($n2 >= 0)) or (($n1==0 ) and ($n2 == 0))) {
+			$index{$e}{'chao'} = $index{$e}{'nbrOTU'} + (($n1*($n1 - 1))/(2*($n2+1)));
+		}
+
+		else {
+			$index{$e}{'chao'} = $index{$e}{'nbrOTU'} + (($n1*$n1)/(2*$n2));
+		}
+
+		$index{$e}{'chao'} = sprintf("%.2f", $index{$e}{'chao'});
+
+		my $cov;
+		if ($index{$e}{'nbrseq'} != 0) {
+			$cov = 1- ($n1/$index{$e}{'nbrseq'});
+			$cov = $cov * 100;
+			$index{$e}{'cov'} = sprintf("%.2f", $cov);
+		}
+		else {
+			$index{$e}{'cov'} = "NA"
+		}
+
+		##################Sace
+
+		my @rare = ($n1, $n2, $n3, $n4, $n5, $n6, $n7, $n8, $n9, $n10);
+
+		for (my $i=0; $i< 10; $i++ ) {
+			my $u = ($i+1)*$rare[$i];
+			$Nrare += $u
+		}
+		for (my $i=0; $i< 10; $i++ ) {
+			my $v = ($i+1)*($i+1-1)*$rare[$i] ;
+			$gamma += $v
+		}
+
+		
+		my $Cace; my $mkm;
+		if ($Nrare != 0) {
+			$Cace = 1 - $n1/$Nrare;
+			my $bst = $ninfeg10*$gamma; 
+			$mkm = $Cace*$Nrare*($Nrare-1);
+			my $Gace; 
+			if ( $mkm != 0) {
+				$Gace = ($bst/$mkm) - 1;
+				if ($Gace < 0) {$Gace = 0}
+			}
+			my $ace; 
+			if ($Cace != 0) {
+				$ace = $nsup10 + ($ninfeg10/$Cace) + ($n1/$Cace)*$Gace ;
+				$index{$e}{'Sace'} = sprintf("%.2f", $ace);
+			}
+		}
+		if (($Nrare ==0) or($mkm ==0) or ($Cace ==0)) {
+			$index{$e}{'Sace'} = "NA";
+		}	
+	
+		
+ 		##########################shannon
+
+		open (SH, $preprocess_output."/".$e."_OTU") ;
+		my $sum = 0; my $sum2 = 0; my $sh;
+		my @tab = <SH>;
+
+		foreach my $elt (@tab) {
+			if ($elt !~ /OTU/) {
+				my @t = split (/\t/, $elt) ;
+				chomp ($t[2]);
+				$sum += $t[2];
+			}
+		}
+
+		if ($sum != 0) {
+			foreach my $el (@tab) {
+				if ($el !~ /OTU/) { 
+					my @t = split (/\t/, $el);
+					chomp ($t[2]);
+					$t[2] = $t[2]/$sum;
+					$t[2] = $t[2] * log($t[2]);
+					$sh += $t[2];
+				}
+			}
+
+			$sh = $sh*(-1);
+			$index{$e}{'shannon'} = sprintf("%.2f", $sh);
+		}
+		else {
+			$index{$e}{'shannon'} = "NA"
+		}
+		close SH;
+	
+########################################### modif 29/01/2014
+
+		#open (IN, ">".$NGS_id_Results."/index_".$Clst) ;
+		#print IN "Sample\t#Sequences\t#Dereplicated Seq\t#OTUs\tChao1\tShannon_Index\tACE\tCoverage\n"; 
+	  
+		#foreach my $e (sort {$so{$a} <=> $so{$b}} keys %index) { 
+		#	open (RAR, ">".$preprocess_output."/".$e."_rarefaction");
+		#	print RAR "#Sequences\t#OTUs\n";
+		#	print IN "$e\t$index{$e}{'nbrseq'}\t$index{$e}{'derepSeq'}\t$index{$e}{'nbrOTU'}\t$index{$e}{chao}\t$index{$e}{'shannon'}\t$index{$e}{'Sace'}\t$index{$e}{'cov'}\n";
+		#	foreach my $p (sort {$a <=> $b} keys %{$nb_clust{$e}})  {
+		#		print RAR "$p\t$nb_clust{$e}{$p}\n";
+		#	}
+		#	close RAR;
+		#} 
+		#close IN;
+	}
+}
+
+############################### normalisation
+print "Normalization ...\n";
+my %index_norm; my %nb_clust_norm ;
+	
+my $norm_dir = $preprocess_output."/norm";
+	`mkdir $norm_dir`;
+
+foreach my $e (keys %sample_name) {
+	my %seq_sample;
+	if (!(-z $seqFolder."seqAll_".$e.".fasta")) {
+		open (S, $seqFolder."seqAll_".$e.".fasta") || die "can not open file";
+		my $aa;
+		while (<S>) {
+			if ($_=~ /^>(.*?)\n/) {
+				$aa = $1
+			}
+			else {
+				chomp($_);
+				$seq_sample{$aa}.=$_;
+			}
+		}
+		close S;
+	}	
+
+	my $keys_seq_sample = keys (%seq_sample);  
+
+	if ($keys_seq_sample >= $nbr_seq_norm) {   
+
+	#################################################################################### modif 30/01/2014, 
+		my $norm=0;
+		open (SS, ">".$norm_dir."/".$e."_".$nbr_seq_norm.".fasta");
+		foreach my $k (keys %seq_sample) {
+			print SS ">$k\n$seq_sample{$k}\n";
+			$norm ++;
+			if ($norm == $nbr_seq_norm) {
+				last
+			}
+		}
+		close SS;
+
+		$index_norm{$e}{'nbrseq'} = $nbr_seq_norm;
+
+
+################################################### Nouvelle normalisation obsolète (sans reclustering)
+#		my $seq_sampled = 0;
+#		my %seq_sampled;
+#		my %otu_sampled;
+#		my %read_to_cluster;
+#		my $n=0 ; 
+#		my $max=0;	
+#
+#		$index_norm{$e}{'nbrseq'} = $nbr_seq_norm;
+#
+#		foreach my $qq (keys %OTU_seq) { 
+#		#	if ($qq eq $e) {	### modif 06/03/2014
+#			my @qq = split(/_/,$qq) ;	### modif 06/03/2014
+#			if ($qq[0] eq $e) {		### modif 06/03/2014
+#				$seq_sampled++;
+#				$seq_sampled{$qq}=$seq{$qq};
+#				$otu_sampled{$OTU_seq{$qq}}{'seq'}.= $qq.", ";
+#				$otu_sampled{$OTU_seq{$qq}}{'nbr'}++;
+#
+#				if ($seq_sampled == $nbr_seq_norm) {
+#					last
+#				} 
+#			}
+#		}
+#
+#		my $nn =0;
+#		foreach my $mm (keys %otu_sampled) {
+#			$read_to_cluster{$e}{$otu_sampled{$mm}{'nbr'}} = $nn;
+#			$nn++;
+#			$n += $otu_sampled{$mm}{'nbr'};
+#			$index_norm{$e}{'nbrOTU'}++;
+#		} 
+#
+#		open (RNORM, ">".$norm_dir."/".$e."_OTU"); 
+#
+#		my $i=1; my $n1=0; my $n2=0; 	
+#		my $ninfeg10=0; my $nsup10=0; my $Nrare=0; my $gamma;
+#		my $n3=0; my $n4=0; my $n5=0; my $n6=0; my $n7=0; my $n8=0; my $n9=0; my $n10=0;
+#
+#		print RNORM "OTU\tSeed sequence\t#Sequences\n";
+#
+#		foreach my $ee ((sort {$otu_sampled{$b} <=> $otu_sampled{$a}} keys %otu_sampled) ){
+#			if ($otu_sampled{$ee}{'nbr'} == 1 ) {$n1++}
+#			if ($otu_sampled{$ee}{'nbr'} == 2 ) { $n2++}
+#
+#		############### ace
+#
+#			if ($otu_sampled{$ee}{'nbr'} == 3 ) {$n3++}
+#			if ($otu_sampled{$ee}{'nbr'} == 4 ) {$n4++}
+#			if ($otu_sampled{$ee}{'nbr'} == 5 ) {$n5++}	
+#			if ($otu_sampled{$ee}{'nbr'} == 6 ) {$n6++}	
+#			if ($otu_sampled{$ee}{'nbr'} == 7 ) {$n7++}
+#			if ($otu_sampled{$ee}{'nbr'} == 8 ) {$n8++}	
+#			if ($otu_sampled{$ee}{'nbr'} == 9 ) {$n9++}
+#			if ($otu_sampled{$ee}{'nbr'} == 10 ) {$n10++}
+#
+#			if ($otu_sampled{$ee}{'nbr'} <= 10) {$ninfeg10++}	
+#			if ($otu_sampled{$ee}{'nbr'} > 10) {$nsup10++}		
+#
+#			print RNORM "$i\t$ee\t$otu_sampled{$ee}{'nbr'}\t$otu_sampled{$ee}{'seq'}\n";
+#			$i++;
+#		}
+#
+#		close RNORM; 
+#	 
+#		######################rarefaction
+#
+#		my $seuil = $index_norm{$e}{'nbrseq'}/10;
+#
+#		my $int;
+#		if ($seuil >= 1) {
+#			$int = int ($seuil)
+#		}
+#		else {
+#			$int = 1
+#		} 
+#		#######################
+#
+#		if ($n> $max) {
+#			$max = $n
+#		}
+#
+#		my $nb_a_ech=0;
+#		my $nb_ech=int($n/$int); 
+#
+#		while($nb_ech>0){
+#			$nb_a_ech+=$int;
+#			my %vu_clust;
+#			my %vu_read;
+#			my $reste_a_ech=$nb_a_ech;
+#
+#			while($reste_a_ech>0){
+#				my $ech=rand()*$n;
+#				$ech=int($ech); 
+#				if (defined($vu_read{$e}{$ech})){}
+#				else{
+#					$vu_read{$e}{$ech}=1;
+#					if( defined $read_to_cluster{$e}{$ech}) { 
+#						$vu_clust{$read_to_cluster{$e}{$ech}}++;
+#					}
+#					$reste_a_ech--;
+#				}
+#			}
+#			my @liste_clust=keys %vu_clust; 
+#			$nb_clust_norm{$e}{$nb_a_ech}=$#liste_clust+1;
+#			$nb_ech--;
+#		}
+#
+#		##################################	modif 31/01/2014, 	
+		
+
+########################################################## remise de l'ancienne normalisation avec reclustering le 05/05/2014
+
+		`$uclust --sort $norm_dir"/"$e"_"$nbr_seq_norm".fasta" --output $norm_dir"/"$e"_"$nbr_seq_norm"_sorted" 2>&1`;
+		`$uclust --input $norm_dir"/"$e"_"$nbr_seq_norm"_sorted" --uc $norm_dir"/"$e"_"$nbr_seq_norm".uc" --id $Clst --optimal --rev 2>&1`;
+		`$uclust --uc2fasta $norm_dir"/"$e"_"$nbr_seq_norm".uc" --input $norm_dir"/"$e"_"$nbr_seq_norm".fasta" --output $norm_dir"/"$e"_"$nbr_seq_norm"_Seq_OTU" --types S `;
+
+		my $resultuc = $norm_dir."/".$e."_".$nbr_seq_norm.".uc";		
+			
+		die "\n\n\tCannot find USEARCH output: $resultuc.\n\n" unless (-e $resultuc);
+		die "\n\n\tUSEARCH output, $resultuc, appears to be empty!\n\n" if (-z $resultuc);
+		open (FNORM, $norm_dir."/".$e."_".$nbr_seq_norm.".uc") ;
+
+		my %seed; my %seed_seq;
+		my $n=0; my %read_to_cluster; my $max=0;
+
+		while (<FNORM>) {
+			my @t = split (/\t/, $_);
+			if ($t[0] eq "H") {
+				$n++;
+				$read_to_cluster{$e}{$n}=$t[1];
+				chomp ($t[9]); chomp ($t[8]);
+				$seed_seq{$t[9]} .= $t[8].", " ;
+				$seed{$t[9]}++ ;
+			}
+
+			if ($t[0] eq "S") {
+				$n++;
+				$read_to_cluster{$e}{$n}=$t[1];	
+				$seed_seq{$t[8]} .= $t[8].", " ;	
+				$seed{$t[8]}++ ;
+			}
+		}
+
+		$index_norm{$e}{'nbrOTU'} = keys (%seed);
+	
+		################## generate seeds 'files (*_Seq_OTU) and nbr_seq / OTU (*_OTU)
+
+		open (RNORM, ">".$norm_dir."/".$e."_OTU"); 
+
+		my $i=1; my $n1=0; my $n2=0; 	
+		my $ninfeg10=0; my $nsup10=0; my $Nrare=0; my $gamma;
+		my $n3=0; my $n4=0; my $n5=0; my $n6=0; my $n7=0; my $n8=0; my $n9=0; my $n10=0;
+
+		print RNORM "OTU\tSeed sequence\t#Sequences\n";
+
+		foreach my $e ((sort { $seed {$b} <=> $seed {$a}} keys %seed) ){
+			if ($seed{$e} == 1 ) {$n1++}
+			if ($seed{$e} == 2 ) { $n2++}
+
+		############### ace
+
+			if ($seed{$e} == 3 ) {$n3++}
+			if ($seed{$e} == 4 ) {$n4++}
+			if ($seed{$e} == 5 ) {$n5++}	
+			if ($seed{$e} == 6 ) {$n6++}	
+			if ($seed{$e} == 7 ) {$n7++}
+			if ($seed{$e} == 8 ) {$n8++}	
+			if ($seed{$e} == 9 ) {$n9++}
+			if ($seed{$e} == 10 ) {$n10++}
+
+			if ($seed{$e} <= 10) {$ninfeg10++}	
+			if ($seed{$e} > 10) {$nsup10++}		
+
+				print RNORM "$i\t$e\t$seed{$e}\t$seed_seq{$e}\n";
+				$i++;
+		}
+
+		close RNORM; 
+ 
+		######################rarefaction
+
+		my $seuil = $index_norm{$e}{'nbrseq'}/10;
+
+		#################
+		my $int;
+		if ($seuil >= 1) {
+			$int = int ($seuil)
+		}
+		else {
+			$int = 1
+		} 
+		#######################
+
+		if ($n> $max) {
+			$max = $n
+		}
+
+		my $nb_a_ech=0;
+		my $nb_ech=int($n/$int); 
+
+		while($nb_ech>0){
+			$nb_a_ech+=$int;
+			my %vu_clust;
+			my %vu_read;
+			my $reste_a_ech=$nb_a_ech;
+
+			while($reste_a_ech>0){
+				my $ech=rand()*$n;
+				$ech=int($ech);
+				if (defined($vu_read{$e}{$ech})){}
+				else{
+					$vu_read{$e}{$ech}=1;
+					if( defined $read_to_cluster{$e}{$ech}) {
+						$vu_clust{$read_to_cluster{$e}{$ech}}++;
+					}
+					$reste_a_ech--;
+				}
+			}
+			my @liste_clust=keys %vu_clust;
+			$nb_clust_norm{$e}{$nb_a_ech}=$#liste_clust+1;
+			$nb_ech--;
+		}
+############################################################################################### fin modif 31/01/2014
+########################################################################################################################
+
+		##################Schao
+
+		if ((($n1 >0) and ($n2 >= 0)) or (($n1==0 ) and ($n2 == 0))) {
+			$index_norm{$e}{'chao'} = $index_norm{$e}{'nbrOTU'} + (($n1*($n1 - 1))/(2*($n2+1)));
+		}
+
+		else {
+			$index_norm{$e}{'chao'} = $index_norm{$e}{'nbrOTU'} + (($n1*$n1)/(2*$n2));
+		}
+
+		$index_norm{$e}{'chao'} = sprintf("%.2f", $index_norm{$e}{'chao'});
+
+		###############coverage
+
+		my $cov;
+  		if ($index_norm{$e}{'nbrseq'} != 0) {
+			$cov = 1- ($n1/$index_norm{$e}{'nbrseq'});
+			$cov = $cov * 100;
+			$index_norm{$e}{'cov'} = sprintf("%.2f", $cov);
+		 }
+ 		else {
+			$index_norm{$e}{'cov'} = "NA"
+ 		}	
+
+		##################Sace
+
+		my @rare = ($n1, $n2, $n3, $n4, $n5, $n6, $n7, $n8, $n9, $n10);
+		for (my $i=0; $i< 10; $i++ ) {
+			my $u = ($i+1)*$rare[$i];
+			$Nrare += $u
+		}
+		for (my $i=0; $i< 10; $i++ ) {
+			my $v = ($i+1)*($i+1-1)*$rare[$i] ;
+			$gamma += $v
+		}
+	
+		my $Cace; my $mkm; 
+		if ($Nrare != 0) {
+			$Cace = 1 - $n1/$Nrare;
+			my $bst = $ninfeg10*$gamma; 
+			$mkm = $Cace*$Nrare*($Nrare-1);
+			my $Gace; 
+			if ( $mkm != 0) {
+				$Gace = ($bst/$mkm) - 1;
+				if ($Gace < 0) {$Gace = 0}
+			}
+			my $ace; 
+			if ($Cace != 0) {
+				$ace = $nsup10 + ($ninfeg10/$Cace) + ($n1/$Cace)*$Gace ;
+				$index_norm{$e}{'Sace'} = sprintf("%.2f", $ace);
+			}
+		}
+		if (($Nrare ==0) or ($mkm ==0) or ($Cace == 0)) {
+			$index_norm{$e}{'Sace'} = "NA";
+		}
+	
+	# 	##########################shannon
+
+		open (SHNORM, $norm_dir."/".$e."_OTU") ;
+		my $sum = 0; my $sum2 = 0; my $sh;
+		my @tab = <SHNORM>;
+
+		foreach my $elt (@tab) {
+			if ($elt !~ /OTU/) {
+				my @t = split (/\t/, $elt) ;
+				chomp ($t[2]);
+				$sum += $t[2];
+			}
+		}
+
+		if ($sum != 0) {
+			foreach my $el (@tab) {
+		 		 if ($el !~ /OTU/) { 
+					  my @t = split (/\t/, $el);
+					  chomp ($t[2]);
+					  $t[2] = $t[2]/$sum;
+					  $t[2] = $t[2] * log($t[2]);
+					  $sh += $t[2];
+				  }
+	 		 }
+
+	 		 $sh = $sh*(-1);
+	 		 $index_norm{$e}{'shannon'} = sprintf("%.2f", $sh);
+  		}
+
+ 		else {
+			$index_norm{$e}{'shannon'} = "NA"
+		}
+		close SHNORM;
+	}
+}     
+
+
+open (IN, ">".$NGS_id_Results."/index_".$Clst) ;
+print IN "Sample\t#Sequences\tNormalized_Sequences\t#OTUs\tNormalized_OTU\tChao1\tNormalized_Chao1\tShannon_Index\t Normalized_Shannon_Index\tACE\tNormalized_ACE\tCoverage\tNormalized_Coverage\n"; 
+
+foreach my $e (sort {$so{$a} <=> $so{$b}} keys %index) {
+
+	open (RAR, ">".$preprocess_output."/".$e."_rarefaction");
+	print RAR "#Sequences\t#OTUs\n";
+
+	foreach my $p (sort {$a <=> $b} keys %{$nb_clust{$e}})  {
+		print RAR "$p\t$nb_clust{$e}{$p}\n";	
+	}
+	close RAR;
+
+	open (RARNORM, ">".$norm_dir."/".$e."_".$nbr_seq_norm."_rarefaction");
+	print RARNORM "#Sequences\t#OTUs\n";
+
+	if (defined $index_norm{$e}) {
+		print IN "$e\t$index{$e}{'nbrseq'}\t$index_norm{$e}{'nbrseq'}\t$index{$e}{'nbrOTU'}\t$index_norm{$e}{'nbrOTU'}\t$index{$e}{chao}\t$index_norm{$e}{chao}\t$index{$e}{'shannon'}\t$index_norm{$e}{'shannon'}\t$index{$e}{'Sace'}\t$index_norm{$e}{'Sace'}\t$index{$e}{'cov'}\t$index_norm{$e}{'cov'}\n";
+	}
+	else {
+		print IN "$e\t$index{$e}{'nbrseq'}\tNA\t$index{$e}{'nbrOTU'}\tNA\t$index{$e}{chao}\tNA\t$index{$e}{'shannon'}\tNA\t$index{$e}{'Sace'}\tNA\t$index{$e}{'cov'}\tNA\n";
+	}
+
+	foreach my $pp (sort {$a <=> $b} keys %{$nb_clust_norm{$e}})  { 
+		print RARNORM "$pp\t$nb_clust_norm{$e}{$pp}\n";	
+	}
+	close RARNORM;
+}
+
+close IN;
+
+
+#################### ajout 10/03/2014 $pool
+
+opendir DIRPREP, $preprocess_output or die "can not open $preprocess_output";
+my @filesprep = readdir DIRPREP ;
+
+if ($pool eq "no") {
+	foreach my $f (@filesprep) { 
+		if (($f =~ /Seq_OTU/)) {
+			 `cat $preprocess_output/$f >>  $NGS_id_Results/All_Seq_OTU_$Clst` 
+		}
+	}
+	print "\nSamples description printed in index_$Clst file.\nOTUs printed in All_Seq_OTU_$Clst file.\nYou can now process All_Seq_OTU_$Clst with panam.pl\n\n";
+}
+close DIRPREP; 
+
+
+if ($pool eq "yes") {
+	
+	print "\nProcessing pooled samples ..\n\n";	
+	
+	my $pooled_sample = $preprocess_output."/pooled_sample/";
+	`mkdir $pooled_sample`;
+	
+	foreach my $file (@seqFolder) {
+		`cat $file >> $pooled_sample"seqAll_pooledSample.fasta"`;
+	}
+
+	my $pooled = $pooled_sample."seqAll_pooledSample.fasta";
+
+
+	my $lines = `grep '>' -c $pooled`;
+	chomp ($lines);
+	if ($lines > 70000) { 
+		`split -l 100000 -d --suffix-length=6 $pooled $pooled_sample"pooledSample_splitted_"`; ##### 70000 et 100000 pour test
+	}
+	else {
+		`cp $pooled $pooled_sample"pooledSample_splitted"`;
+	}
+
+
+	my @splittedFiles = <$pooled_sample*splitted*> ;
+	foreach my $split (@splittedFiles) { 
+		`$uclust --sort $split --output $split"_sorted" 2>&1`;
+		`$uclust --input $split"_sorted" --uc $split".uc" --id 0.99 --optimal --rev 2>&1`;
+		`$uclust --uc2fasta $split".uc" --input $split --output $split"_99.fasta_tmp" --types S 2>&1`;
+	
+		open (G, $split."_99.fasta_tmp");
+		open (GG, ">".$split."_99.fasta");
+		my @g = <G>;
+		foreach my $e (@g) {
+			if ($e =~ /^>\d+\|\*\|(.*?)\n/) {
+				print GG ">".$1."\n"
+			}
+			else {
+				print GG $e
+			}
+		}
+		close G; close GG;
+		`rm $split"_99.fasta_tmp"`; 
+	}
+
+	my %derep;
+	my @keepFiles = <$pooled_sample*>;
+	foreach my $keep (@keepFiles) { 
+		if ($keep =~ /.*pooled_sample\/(.*)_splitted_.*?99.fasta$/) {
+			`cat $keep >> $pooled_sample"pooledSample_dereplicated.fasta"` ;
+		}
+
+		### récupérer pour chaque seed dérépliquée ses réplicats
+
+		if ($keep =~ /\.uc$/) {
+			open (DER, $keep) or die "can not open file $keep !";
+			while (<DER>) {
+				my @t = split (/\t/, $_);	
+				if ($t[0] eq "H") { 
+					chomp($t[8]); chomp ($t[9]);
+					$derep{$t[9]} .= $t[8].", " ;
+				}
+			}
+
+			my @DER= <DER>;
+			foreach my $line (@DER) {
+				my @t = split (/\t/, $_);
+				if ($t[0] eq "S") {	
+					chomp($t[8]);
+					if (exists $derep {$t[8]}) {}
+					else {
+						$derep{$t[8]} .= $t[8].", " ;
+					}	
+				}
+			}
+			close DER;
+		 }
+		if ($keep =~ /splitted/) { `rm $keep`}
+	}
+
+	##############
+	my %seq_sample;
+	my %nb_clust;
+
+	open (S, $pooled_sample."pooledSample_dereplicated.fasta") or die "can not open file";
+	my $aa;
+	while (<S>) {
+		if ($_=~ /^>(.*?)\n/) {
+			$aa = $1; 
+		}
+		else {
+			chomp($_);
+			$seq_sample{$aa}.=$_
+		}
+	}
+	close S;
+
+	my $keys_seq_sample = keys (%seq_sample);
+
+	`$uclust --sort $pooled_sample"pooledSample_dereplicated.fasta" --output $pooled_sample"pooledSample_sorted" 2>&1`;
+	`$uclust --input $pooled_sample"pooledSample_sorted" --uc $pooled_sample"pooledSample.uc" --id $Clst --optimal --rev 2>&1`;
+	`$uclust --uc2fasta $pooled_sample"pooledSample.uc" --input $pooled_sample"pooledSample_dereplicated.fasta" --output $pooled_sample"pooledSample_Seq_OTU_tmp" --types S `;
+		
+ 	open (X, $pooled_sample."pooledSample_Seq_OTU_tmp");
+	open (XX, ">".$pooled_sample."pooled_sample_SEQ_OTU");
+	my @g = <X>;
+	foreach my $e (@g) {
+		if ($e =~ /^>\d+\|\*\|(.*?)\n/) {
+			print XX ">".$1."\n"
+		}
+		else {
+			print XX $e
+		}
+	}
+	close X; close XX;
+	`rm $pooled_sample"pooledSample_Seq_OTU_tmp"`; 
+	
+	my $resultuc = $pooled_sample."pooledSample.uc";		
+
+	die "\n\n\tCannot find USEARCH output: $resultuc.\n\n" unless (-e $resultuc);
+	die "\n\n\tUSEARCH output, $resultuc, appears to be empty!\n\n" if (-z $resultuc);
+
+	open (F, $resultuc) ;
+
+	my %seed; my %seed_seq;
+	my $n=0; my %read_to_cluster; my $max=0;
+
+	while (<F>) {
+		my @t = split (/\t/, $_); 
+		if ($t[0] eq "H") {
+			if (exists $derep{$t[8]}) {
+				my @x = split(/, /, $derep{$t[8]});
+				my $x = $#x + 1;
+				$n+= $x;
+			}
+			else {
+				$n++
+			}
+
+			$read_to_cluster{$n}=$t[1];
+			chomp ($t[9]); chomp ($t[8]);
+			$seed_seq{$t[9]} .= $t[8].", " ;
+			$seed{$t[9]}++ ;
+		}
+		
+		if ($t[0] eq "S") {
+			if (exists $derep{$t[8]}) {
+				my @x = split(/, /, $derep{$t[8]});
+				my $x = $#x + 1;
+				$n+= $x;
+			}
+			else {
+				$n++
+			}
+			$read_to_cluster{$n}=$t[1];	
+			chomp ($t[8]);
+			$seed_seq{$t[8]} .= $t[8].", " ;	
+			$seed{$t[8]}++ ;
+		}
+	}
+	close F;
+
+	################## generate seeds 'files (*_Seq_OTU) and nbr_seq / OTU (*_OTU) avec les vrais abondances des OTUs dérepliqués
+
+	my %seed_seq_fin; my %seed_fin;
+	
+	foreach my $k (keys %seed_seq) {
+		my $replic; 
+		my $seed_occ ;
+		my @pp = split(/, /, $seed_seq{$k});
+		foreach my $ee (@pp) {
+			if (exists $derep{$ee}) {
+				$replic .= $ee.", ".$derep{$ee} ; 
+				my @p = split(/, /, $derep{$ee});
+				foreach my $q (@p) {
+					$OTU_seq{$q} = $k
+				}
+
+
+				my $p = $#p +2;
+				$seed_occ += $p;
+			}
+			else {
+				$replic .= $ee.", "; 
+				$seed_occ++;
+				$OTU_seq{$ee} = $k
+			}
+		}
+
+		$seed_seq_fin{$k} = $replic;
+		$seed_fin{$k} = $seed_occ;
+	}
+
+	open (R, ">".$pooled_sample."pooled_sample_OTU");
+	print R "OTU\tSeed sequence\t#Sequences\n";
+	my $i=1;
+	foreach my $f ((sort { $seed_fin {$b} <=> $seed_fin {$a}} keys %seed_fin) ){ 
+		print R "$i\t$f\t$seed_fin{$f}\t$seed_seq_fin{$f}\n";
+		$i++
+	}
+	close R; 
+	
+	print "\nSamples description printed in index_$Clst file.\nOTUs of environments clustered together are printed in $pooled_sample/pooled_sample_SEQ_OTU file.\nYou can now process $pooled_sample/pooled_sample_SEQ_OTU with panam.pl\n\n";
+}
+###### fin ajout 
+
