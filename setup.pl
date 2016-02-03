@@ -1,76 +1,11 @@
 #!/usr/bin/perl -w
 use strict;
 use warnings;
-use Getopt::Long;
-
-################################""
-
-my $usage = qq~
-Usage: perl -w $0 -USEARCH_path <PATH>
-       PATH:
-                the full path of USEARCH 
-
-~;
-
-my ($usearch, $bioperl_home) = ();
-GetOptions(	'USEARCH_path=s'=>\$usearch) || die $usage;
-
-die $usage unless ($usearch);
-
-unless (-e $usearch) { die "$usearch does not exist $!\n"; }
-
-############################usearch
-my @t = split(/\//, $usearch);
-my $mm = $#t;
-
-my $path;
-my $uu = $t[$mm];
-for (my $i=0; $i<$mm; $i++) {
-	$path .=$t[$i]."/"
-}
-
-if (($uu=~ /usearch/ ) or ($uu=~ /uclust/)) {
-	`chmod 755 $path$uu > file`;
-}
-		
-die "\n\n\t=> Usearch, ".$path.$uu.", appears to be empty!\n\n" if (-z $path.$uu);
-die "\n\n\t=> Usearch, ".$path.$uu.", is not an executable file! insure to make it executable before you launch setup.pl.\n\n" if (!(-z "file"));
-`rm file`;
-
-my $us_version;
-my $version = `$path$uu --version`;
-if ($version=~/\w.*?\sv(\d.*?)\s/) {
-	$us_version = $1;
-	chomp ($us_version); 
-}
 
 my $current_dir = `pwd`; 
 chomp($current_dir);
-
-my $cho;
-
-if (!(defined $us_version)) { die "\nWrong USEARCH path!\nPlease enter the full path\n\n"};
-	
-print "\n\n\tYou have a license to use USEARCH version $us_version\n";
-if (($us_version ne "3.0.617")) {
-	print "\n\tYour version may not be suitable for the running of PANAM.\n\tFor review only, we provide version 3.0.617.\n\tPANAM will be set on this version.\n\n";
-	$cho = $current_dir."/bin/uclust3.0.617";
-	$us_version = "3.0.617";
-	print "\n\tDo you want to continue? [y/n]\n\n\t";
-	my $rep = <STDIN>; chomp ($rep);
-
-	if (($rep ne "y") and ($rep ne "n")) {
-		print "\n\n\tWrong answer\n\tPlease enter y or n\n\t";
-		$rep = <STDIN>;
-		chomp ($rep)
-	}
-			
-	if ($rep eq "n") {die "\n\tInstalling PANAM interrupted\n\n"} 
-}
-
-else {
-	$cho = $path.$uu;
-}
+my $cho = $current_dir."/bin/uclust3.0.617";
+my $us_version = "3.0.617";
 
 ################### check if pandaseq is installed
 
@@ -181,6 +116,7 @@ open (F6, ">$current_dir/phylodiv.pl");
 print F6 $text6;
 close F6;
 
+
 #######################################################""
 print "\n\n\tCompiling Bioperl...\n\t******* For non experimented users, we recommand to use the default setting while installing bioperl *******\n";
 print "\t******* If the archive Bioperl-1.5.2_102.zip already exists, you may chose to replace it or not [A/N] *******\n";
@@ -258,7 +194,7 @@ sub compile_emboss {
 	chdir ("../");
 }
 
-
 ###############################""
 
 print "\n\n\tPANAM had been successfully installed.\n\n";
+
