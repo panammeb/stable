@@ -6,18 +6,17 @@ PANAM was tested on ubuntu system 12.4 and 14.04
 
 The following softwares are required by the PANAM package. They need to be downloaded and installed separately from PANAM. 
 1. Perl 5 or later (www.perl.org) 
-2. USEARCH (www.drive5.com). Tested versions are v1.1.579q; v3.0.617; v4.0.38 and v5.0.150. 
-Other versions may not be suitable to the running of PANAM. 
-3. PANDASEQ 
-4. gcc. 
-5. make. 
-6. R. 
-7. R packages: Vegan; Phyloseq; Picante; Mass.
+2. PANDASEQ 
+3. gcc. 
+4. make. 
+5. R. 
+6. R packages: Vegan; Phyloseq; Picante; MASS.
 
 The following softwares are included in the PANAM package, they will be installed when setting PANAM up. (We do not guarantee the running of PANAM with other versions) 
 1. FastTree-2.1.3 
 2. HMMER-2.3.2 
-3- Bioperl-1.5.2
+3. Bioperl-1.5.2
+4. UCLUST_v3.0.617
 
 GETTING PANAM
 ----------------------------------------------------------------------------------------------
