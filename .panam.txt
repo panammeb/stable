@@ -1259,16 +1259,26 @@ if ($user_file eq "pooledSamples") {
 	my %hps; 
 	my $l;
 	while (<FF>) {
-		if ($_=~ /^OTU/) {}
+#		if ($_=~ /^OTU/) {} ### 20151210 - Gisele : cette ligne est commentee dans la version usr_local au profit de l'instruction *** if ($_=~ /seed Sequence/) {} *** alors qu'elle est active dans la version latest_master. --> je mets cette ligne en commentaire ce jour et la remplace par la ligne correspondante modifiee de la version usr_local...
+
+		if ($_=~ /seed Sequence/) {} #### ligne notee modif 20/8/2014 dans la version usr_local ; numero de ligne = 1278
+
 		else {
 			chomp ($_);
 			my @tab = split (/\t/, $_);
 
 			############################################ !!!!!!!!!!!
-			if (exists $taxOTU{$tab[1]}{'LCA'}) {
+	#		if (exists $taxOTU{$tab[1]}{'LCA'}) {	### 20151210 - Gisele : cette ligne est commentee dans la version usr_local au profit de l'instruction *** if ($_=~ /seed Sequence/) {} *** alors qu'elle est active dans la version latest_master. --> je mets cette ligne en commentaire ce jour et la remplace par la ligne correspondante modifiee de la version usr_local...
+
+			if (exists $taxOTU{$tab[0]}{'LCA'}) {  #### ligne notee modif 20/8/2014 dans la version usr_local ; numero de ligne = 1285
+
 
 				my $id = $tab[0]."\t".$tab[1];
-				$hps{$id}{'id'} = $tab[1];
+#				$hps{$id}{'id'} = $tab[1];	### 20151210 - Gisele : cette ligne est commentee dans la version usr_local au profit de l'instruction *** if ($_=~ /seed Sequence/) {} *** alors qu'elle est active dans la version latest_master. --> je mets cette ligne en commentaire ce jour et la remplace par la ligne correspondante modifiee de la version usr_local...
+
+				$hps{$id}{'id'} = $tab[0];	#### ligne notee modif 20/8/2014 dans la version usr_local ; numero de ligne = 1289
+
+
 				my @tt = split (/, /, $tab[3]);			
 				
 				foreach my $e (@tt) {
@@ -1288,14 +1298,21 @@ if ($user_file eq "pooledSamples") {
 				$u-= 1;
 				my @t = @tt[0..$u];
 
-				$child{$tab[1]} = \@t;
+	#			$child{$tab[1]} = \@t; ### 20151210 - Gisele : cette ligne est commentee dans la version usr_local au profit de l'instruction *** if ($_=~ /seed Sequence/) {} *** alors qu'elle est active dans la version latest_master. --> je mets cette ligne en commentaire ce jour et la remplace par la ligne correspondante modifiee de la version usr_local...
+
+				$child{$tab[0]} = \@t; #### ligne notee modif 20/8/2014 dans la version usr_local ; numero de ligne = 1310
+
+
 				foreach my $e (@t) {	
 					if (defined $e) {
-						$seed{$e} = $tab[1];
+#						$seed{$e} = $tab[1]; ### 20151210 - Gisele : cette ligne est commentee dans la version usr_local --> je mets cette ligne en commentaire ce jour et la remplace par la ligne correspondante modifiee de la version usr_local...
+						$seed{$e} = $tab[0];#### ligne notee modif 20/8/2014 dans la version usr_local ; numero de ligne = 1314
 					}
 				}
 			} 
-			else { delete $taxOTU{$tab[1]} }	### éliminer les seq qui n'ont pas été affiliées phylogénétiquement
+		#	else { delete $taxOTU{$tab[1]} }	### éliminer les seq qui n'ont pas été affiliées ### 20151210 - Gisele : cette ligne est commentee dans la version usr_local --> je mets cette ligne en commentaire ce jour et la remplace par la ligne correspondante modifiee de la version usr_local...
+
+			else { delete $taxOTU{$tab[0]} }	### éliminer les seq qui n'ont pas été affiliées phylogénétiquement #### ligne notee modif 20/8/2014 dans la version usr_local ; numero de ligne = 1319
 		}
 	}
 	close FF;
@@ -1316,6 +1333,22 @@ if ($user_file eq "pooledSamples") {
 		
 	foreach my $p (keys %hps) {
 		print REPS "$p\t";
+
+# 20151211 :MODIF GISELE POUR TENTER DE RECONSTRUIRE LE HASH SAMPLE SANS QUE LE NOM DES ECHANTILLONS N'APPARAISSE DANS LES ID DES OTU
+#*************************************************************************************************************************************
+#*************************************************************************************************************************************
+		
+		my @otutmp = split (/\t/, $p);
+		print $otutmp[1]."\n";
+
+		my @toto = split (/_/, $otutmp[1]);
+		print $toto[0]."\n";
+			$sample{$toto[0]} = 1 ;
+
+		
+#*************************************************************************************************************************************
+#*************************************************************************************************************************************
+
 		#foreach my $pp ( (sort {$so{$a} <=> $so{$b}} keys %barIn))
 		foreach my $pp ( (sort {$so{$a} <=> $so{$b}} keys %so)) { 								## VERSION 3.02 ##
 		#foreach my $pp ((sort {$barIn{$b} <=> $barIn{$a}} keys %barIn)) {	
@@ -1368,11 +1401,21 @@ if ($user_file eq "eachSample") {
 	
 my %seq_clean;					
 foreach my $k (keys %taxOTU) { 
-	foreach my $aff (keys %{$taxOTU{$k}}) { 	
-		foreach my $e (@{$child{$k}}) {		
+
+
+	foreach my $aff (keys %{$taxOTU{$k}}) { 
+
+	
+		foreach my $e (@{$child{$k}}) {	
+
+
 			if ((defined $e) and ($e ne "")) {
-				my @oo = split (/_/,$e);			
-				foreach my $s (%sample) { 										
+				my @oo = split (/_/,$e);
+
+			
+				foreach my $s (%sample) { 
+
+							
 					if ($oo[0] eq $s){ 										
 						push (@{$seq_clean{$aff}{$s}}, $e) ;
 					}
@@ -1384,6 +1427,9 @@ foreach my $k (keys %taxOTU) {
 
 %child = (); 														## VERSION 3.01 ##
 
+
+print "fin seq_clean, preparation de hash --- ".length(keys %seq_clean)."\n";
+
 my %hash; my %min_norm;
 my %min_norm_env;
 
@@ -1393,7 +1439,10 @@ $min_norm{'NN'} = $aff_norm;
 $min_norm{'LCA'} = $aff_norm;
 
 foreach my $aff (keys %seq_clean) {
-	foreach my $ss(keys %{$seq_clean{$aff}}) {											# $ss = env 
+print "---";
+#print "print line 1429 - aff : ".$aff."\n";
+	foreach my $ss(keys %{$seq_clean{$aff}}) {			# $ss = env 
+								
 		my $m = scalar (@{$seq_clean{$aff}{$ss}});
 		if ($m >= $aff_norm) {
 			$min_norm_env{$ss}=1;
@@ -1447,10 +1496,16 @@ foreach my $k (keys %hash) { #print "k --- $k\n";										# $k = $env
 my %d;
 my %synt;
 foreach my $k (keys %subsample) { 											# $k = $env
+
+
 	foreach my $aff (keys %{$subsample{$k}}) {  
 		foreach my $kk (keys %{$subsample{$k}{$aff}}) {
+
 			my $aa = $seed{$kk};
 			$synt{$k}{$aff}{$aa}{'reads'} .= $kk.",";
+
+print "kk : ".$aa."\n";
+
 			$synt{$k}{$aff}{$aa}{'som'}++ ;
 			$d{$aff}{$aa}= 1;
 		}
@@ -1461,6 +1516,7 @@ foreach my $k (keys %subsample) { 											# $k = $env
 
 my %distr; 
 foreach my $v (keys %synt) {												# $v = $env
+
 	foreach my $aff (keys %{$synt{$v}}) {
 		foreach my $k (keys %{$d{$aff}} ) {
 			if (defined $synt{$v}{$aff}{$k}{'som'}) {
