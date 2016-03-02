@@ -149,6 +149,8 @@ install_text() ;
 compile_emboss() ;
 unless (-x "EMBOSS-6.5.7/emboss/./fuzznuc") {die "\tFuzznuc has not been found $!\n" ; }
 
+`tar xvf Reference.tar.bz2`;
+
 sub compile_bioperl {
 	chdir "bin";
 	system ("unzip bioperl-1.5.2_102.zip");
