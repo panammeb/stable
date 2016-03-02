@@ -49,6 +49,8 @@ Install panam with the setup.pl script :
 Choose default choice for all questions.
 Ignore FastTree compiling warnings if occurred.
 
+Extract Reference archive :
 
+	tar -xjvf Reference.tar.bz2
 
 
