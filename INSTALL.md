@@ -40,11 +40,9 @@ Untar reference files :
 	tar -xjvf Reference.tar.bz2
 	rm Reference.tar.bz2
 
-In aim to test panam, you can use the uclust binary included in the panam distribution.
-
 Install panam with the setup.pl script :
 
-	perl -w setup.pl -USEARCH_path /absolute/path/to/uclust/binary
+	perl -w setup.pl
 
 Choose default choice for all questions.
 Ignore FastTree compiling warnings if occurred.
