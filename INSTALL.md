@@ -19,6 +19,8 @@ The following softwares are included in the PANAM package, they will be installe
 	2. HMMER-2.3.2 
 	3. Bioperl-1.5.2
 	4. UCLUST_v3.0.617
+	5. PERL package: Text::CSV_XS
+	6. fuzznuc included in EMBOSS-6.5.7
 
 GETTING PANAM
 ----------------------------------------------------------------------------------------------
