@@ -1,6 +1,6 @@
 DATASETS
 -----------------------------------------------------------------------
-Testing PANAM
+TESTING PANAM
 
 In order to test PANAM, a full 454Roche format dataset is provided.
 This dataset contains 4 files:
@@ -14,7 +14,7 @@ file is provided, as an example. Due to space quota limitations on github
 hosting, it is not possible to provide MiSeq format input data files.
 
 -----------------------------------------------------------------------
-How to set datasets to test PANAM ?
+HOW TO SET DATASETS IN ORDER TO TEST PANAM ?
 
 Configuration files are built to allow you testing PANAM assuming that 
 you have installed PANAM in a subdirectory named panam in your home
