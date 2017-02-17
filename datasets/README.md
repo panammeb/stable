@@ -10,8 +10,8 @@ This dataset contains 4 files:
 - a configuration file : panam.ini
 
 For those who want to test PANAM with MiSeq format data, only the configuration
-file is provided. The data files are made available on request due to 
-space quota limitations on github hosting.
+file is provided. The data files are made available on request at panam@listes.univ-bpclermont.fr
+due to space quota limitations on github hosting.
 
 -----------------------------------------------------------------------
 HOW TO SET DATASETS IN ORDER TO TEST PANAM ?
