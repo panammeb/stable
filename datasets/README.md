@@ -9,16 +9,16 @@ This dataset contains 4 files:
 - a barcode file : 454roche.bar
 - a configuration file : panam.ini
 
-For these who would test PANAM with MiSeq format data, only a configuration
-file is provided, as an example. Due to space quota limitations on github
-hosting, it is not possible to provide MiSeq format input data files.
+For those who want to test PANAM with MiSeq format data, only the configuration
+file is provided. The data files are made available on request due to 
+space quota limitations on github hosting.
 
 -----------------------------------------------------------------------
 HOW TO SET DATASETS IN ORDER TO TEST PANAM ?
 
-Configuration files are built to allow you testing PANAM assuming that 
-you have installed PANAM in a subdirectory named panam in your home
-directory, and that datasets have been deployed in a subdirectory named
+Configuration files are filled in order to allow you testing PANAM assuming that 
+you have installed PANAM in a directory named panam in your home
+directory, and that datasets have been deployed in a directory named
 454roche (or miseq, if applicable) in your home directory.
 
 Confguration files have to be updated changing /user/ to your login 
@@ -34,7 +34,7 @@ in keys which set paths. These keys are :
 - CLADE_FILE
 - REFERENCE_BASE
 
-If you haven't installed PANAM in location said above, you also have to 
+If you haven't installed PANAM in the location indicated above, you also have to 
 update the key REFERENCE_BASE, changing /home/user/panam/ to the real
 PANAM's installation location.
 
